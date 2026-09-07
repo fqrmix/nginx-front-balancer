@@ -2,7 +2,7 @@
 
 Reverse-proxy + TLS termination перед `sm_bot_golang` (admin API) и
 `sm_bot_admin` (веб-админка). Сертификаты — wildcard Let's Encrypt через
-DNS-01 (Beget), автопродление через `acme.sh`.
+DNS-01 (HOSTKEY), автопродление через `acme.sh`.
 
 ## Домены
 
@@ -20,7 +20,47 @@ DNS-01 (Beget), автопродление через `acme.sh`.
 `acme_issue` в `docker-compose.yaml`). Если подтверждённые домены
 поменяются — поправить список там же.
 
-## DNS-записи, которые нужно создать в Beget заранее
+## HOSTKEY: API-токен и кастомный dnsapi-хук
+
+**`hostkey.ru`, не `hostkey.com`** — это разные бэкенды с разными API-хостами
+(`invapi.hostkey.ru` vs `invapi.hostkey.com`) и разными NS
+(`ns1/ns2.hostkey.ru`). Токен от одного не работает на другом. Скрипт
+ниже настроен на `.ru`.
+
+У HOSTKEY нет официального плагина ни для `acme.sh`, ни для `certbot`, но
+есть собственный DNS API (`https://invapi.hostkey.ru/pdns.php`,
+[документация](https://hostkey.ru/documentation/apidocs/pdns/)) с
+точечными `add_dns`/`delete_dns` по одной записи — в отличие от Beget, где
+`changeRecords` перезаписывает всю зону целиком и сторонние скрипты
+регулярно стирали существующие A/MX-записи, здесь такого риска нет.
+
+`acme/dns_hostkey.sh` — самописный dnsapi-хук под конвенцию `acme.sh`
+(`dns_hostkey_add`/`dns_hostkey_rm`), примонтирован в оба контейнера
+(`acme_issue`, `acme_renew`) по пути `/acme.sh/dnsapi/dns_hostkey.sh`.
+Он не универсальный: вместо общего алгоритма поиска зоны (обычно
+dnsapi-скрипты поднимаются по лейблам домена и спрашивают провайдера, где
+граница зоны) просто отрезает захардкоженный суффикс `fqrmix.ru`
+(`HOSTKEY_ZONE` в `.env`, если когда-нибудь понадобится другой). Для
+единственной используемой здесь зоны этого достаточно.
+
+Токен — в личном кабинете `hostkey.ru`, раздел API-ключей
+([документация](https://hostkey.ru/documentation/apidocs/api/)), положить
+в `HOSTKEY_TOKEN` в `.env`. Заодно проверь, что NS у `fqrmix.ru` в
+регистраторе действительно указывают на `ns1.hostkey.ru`/`ns2.hostkey.ru`
+— иначе DNS-хостинг и, соответственно, этот API вообще не про твою зону.
+
+**Не проверено вживую** — своего аккаунта HOSTKEY для теста нет, формат
+ответа `pdns.php` (проверка на `"result":"OK"`) собран из документации, а
+не из реального вызова. Первый прогон `acme_issue` стоит запустить
+руками и посмотреть на реальный ответ API, прежде чем полагаться на
+автопродление:
+
+```bash
+docker compose run --rm acme_issue
+docker compose logs acme_issue
+```
+
+## DNS-записи, которые нужно создать в HOSTKEY заранее
 
 Выпуск сертификата (DNS-01) не требует ничего, кроме доступа к API — но
 чтобы трафик реально доходил до сервера, в зоне `fqrmix.ru` должны быть:
@@ -58,7 +98,7 @@ compose-проект тоже публикует `443:443` — оба однов
 ## Запуск
 
 ```bash
-cp .env.example .env    # Beget_Username / Beget_Password
+cp .env.example .env    # HOSTKEY_TOKEN
 docker compose up --build -d
 ```
 

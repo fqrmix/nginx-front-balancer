@@ -1,8 +1,10 @@
 services:
   # One-shot: issues the wildcard cert (fqrmix.ru, *.fqrmix.ru,
-  # *.yoomoney-services.fqrmix.ru) via DNS-01 against Beget, then installs
-  # it into the shared `certs` volume at a fixed, predictable path. Runs
-  # once per `docker compose up`; a no-op if acme.sh's own state (in
+  # *.yoomoney-services.fqrmix.ru) via DNS-01 against HOSTKEY (our DNS
+  # provider - see acme/dns_hostkey.sh, a custom dnsapi hook since HOSTKEY
+  # has no official acme.sh/certbot plugin), then installs the result
+  # into the shared `certs` volume at a fixed, predictable path. Runs once
+  # per `docker compose up`; a no-op if acme.sh's own state (in
   # `acme_state`) already has a valid, unexpired cert for these names.
   acme_issue:
     image: neilpang/acme.sh
@@ -12,12 +14,13 @@ services:
     volumes:
       - acme_state:/acme.sh
       - certs:/certs
+      - ./acme/dns_hostkey.sh:/acme.sh/dnsapi/dns_hostkey.sh:ro
     entrypoint: ["/bin/sh", "-c"]
     command:
       - |
         set -e
         mkdir -p /certs/fqrmix.ru
-        acme.sh --issue --dns dns_beget \
+        acme.sh --issue --dns dns_hostkey \
           -d fqrmix.ru \
           -d '*.fqrmix.ru' \
           -d '*.yoomoney-services.fqrmix.ru' \
@@ -43,6 +46,7 @@ services:
     volumes:
       - acme_state:/acme.sh
       - certs:/certs
+      - ./acme/dns_hostkey.sh:/acme.sh/dnsapi/dns_hostkey.sh:ro
     depends_on:
       acme_issue:
         condition: service_completed_successfully
