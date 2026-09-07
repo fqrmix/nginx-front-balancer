@@ -1,0 +1,84 @@
+services:
+  # One-shot: issues the wildcard cert (fqrmix.ru, *.fqrmix.ru,
+  # *.yoomoney-services.fqrmix.ru) via DNS-01 against Beget, then installs
+  # it into the shared `certs` volume at a fixed, predictable path. Runs
+  # once per `docker compose up`; a no-op if acme.sh's own state (in
+  # `acme_state`) already has a valid, unexpired cert for these names.
+  acme_issue:
+    image: neilpang/acme.sh
+    container_name: sm_bot_acme_issue
+    env_file:
+      - .env
+    volumes:
+      - acme_state:/acme.sh
+      - certs:/certs
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        set -e
+        mkdir -p /certs/fqrmix.ru
+        acme.sh --issue --dns dns_beget \
+          -d fqrmix.ru \
+          -d '*.fqrmix.ru' \
+          -d '*.yoomoney-services.fqrmix.ru' \
+          --server letsencrypt
+        acme.sh --install-cert -d fqrmix.ru \
+          --key-file       /certs/fqrmix.ru/privkey.pem \
+          --fullchain-file /certs/fqrmix.ru/fullchain.pem
+    networks:
+      - sm_bot_net
+
+  # Long-running: acme.sh's built-in cron checks daily and renews ~30 days
+  # before expiry, reusing the --install-cert target remembered from the
+  # issue step above. nginx picks up the renewed files on its own 12h
+  # reload timer (see nginx/docker-entrypoint-reload.sh) - no signalling
+  # between these two containers required.
+  acme_renew:
+    image: neilpang/acme.sh
+    container_name: sm_bot_acme_renew
+    restart: unless-stopped
+    env_file:
+      - .env
+    command: ["daemon"]
+    volumes:
+      - acme_state:/acme.sh
+      - certs:/certs
+    depends_on:
+      acme_issue:
+        condition: service_completed_successfully
+    networks:
+      - sm_bot_net
+
+  nginx:
+    build: ./nginx
+    image: sm_bot_nginx_balancer
+    container_name: nginx_balancer
+    restart: always
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - certs:/etc/nginx/certs:ro
+      - ./www:/var/www:ro
+    depends_on:
+      acme_issue:
+        condition: service_completed_successfully
+    networks:
+      - sm_bot_net
+
+volumes:
+  # acme.sh's account key + per-domain renewal config - losing this means
+  # re-issuing from scratch (fine) but losing the --install-cert linkage
+  # (means re-running acme_issue's install-cert manually after a renewal).
+  acme_state:
+  # Just the installed fullchain/privkey nginx actually reads.
+  certs:
+
+networks:
+  # Shared with sm_bot_golang/deploy/docker-compose.yaml and
+  # sm_bot_admin/deploy/docker-compose.yaml - created by whichever of the
+  # three stacks starts first (docker compose creates a network declared
+  # non-external the first time; here it's always external because this
+  # repo doesn't own it).
+  sm_bot_net:
+    external: true

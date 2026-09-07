@@ -1,0 +1,48 @@
+# NOT active - reference only. This host's port 443 is currently owned by
+# proxy-balancer-app (VLESS Reality, camouflaged as www.microsoft.com over
+# TLS) via its own `ports: ["443:443"]` mapping. nginx-balancer runs its
+# own real ports:443 binding (see ../docker-compose.yaml), which only
+# works because right now the two stacks aren't started on the same host
+# port at the same time.
+#
+# To eventually run both through one shared :443, replace nginx-balancer's
+# `ports: ["443:443"]` with this stream{} block instead: it inspects the
+# TLS ClientHello's SNI *without* terminating TLS (ssl_preread) and routes
+# by hostname - fqrmix.ru/*.fqrmix.ru/*.yoomoney-services.fqrmix.ru go to
+# this container's own http{} server blocks (on an internal-only port,
+# e.g. 8443, no longer bound to the host), and the required blend of
+# "everything else" (Reality's SNI is always www.microsoft.com, since
+# that's what camouflages it) is forwarded untouched to proxy-balancer-app
+# over a docker network shared between the two stacks.
+#
+# This file lives outside nginx/conf.d/ on purpose: conf.d is `include`d
+# inside http{}, but stream{} is a top-level sibling of http{} in
+# nginx.conf, so wiring this in means adding a stream{} block to a custom
+# nginx.conf (the current build uses the stock one from the base image)
+# and removing proxy-balancer's own `443:443` host port mapping in favour
+# of it being reached only via this container name on their shared
+# network.
+
+stream {
+    map $ssl_preread_server_name $backend {
+        fqrmix.ru                          local_https;
+        ~\.fqrmix\.ru$                     local_https;
+        default                            proxy_balancer;
+    }
+
+    upstream local_https {
+        server 127.0.0.1:8443;
+    }
+
+    upstream proxy_balancer {
+        # Requires nginx-balancer to join proxy-balancer's docker network
+        # (or vice versa) so this resolves - not wired today.
+        server proxy-balancer-app:443;
+    }
+
+    server {
+        listen 443;
+        ssl_preread on;
+        proxy_pass $backend;
+    }
+}
