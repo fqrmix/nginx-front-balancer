@@ -100,6 +100,15 @@ docker compose up --build -d
 никакой синхронизации между контейнерами не требуется (см.
 `nginx/docker-entrypoint-reload.sh`).
 
+`acme.sh --issue` возвращает **exit code 2** (не 0), когда сертификат уже
+валиден и обновлять рано («Domains not changed. Skipping.») — это не
+ошибка, а штатный «пропуск». `acme_issue`'ный `set -e` изначально
+принимал такой exit code за сбой и падал ещё до `--install-cert`, из-за
+чего `nginx`/`acme_renew` вечно висели в `Created`
+(`depends_on: condition: service_completed_successfully` не срабатывал).
+Команда в `docker-compose.yaml` это учитывает: код 2 — пропускается,
+любой другой — падает как обычно.
+
 ## Порядок раскатки в связке с остальными репозиториями
 
 Сеть `sm_bot_net` создаётся `sm_bot_golang/deploy/docker-compose.yaml` —
