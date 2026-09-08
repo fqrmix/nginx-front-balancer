@@ -2,7 +2,7 @@
 
 Reverse-proxy + TLS termination перед `sm_bot_golang` (admin API) и
 `sm_bot_admin` (веб-админка). Сертификаты — wildcard Let's Encrypt через
-DNS-01 (HOSTKEY), автопродление через `acme.sh`.
+DNS-01 (Beget), автопродление через `acme.sh`.
 
 ## Домены
 
@@ -20,61 +20,39 @@ DNS-01 (HOSTKEY), автопродление через `acme.sh`.
 `acme_issue` в `docker-compose.yaml`). Если подтверждённые домены
 поменяются — поправить список там же.
 
-## HOSTKEY: API-токен и кастомный dnsapi-хук
+## Beget: API-логин/пароль
 
-**`hostkey.ru`, не `hostkey.com`** — это разные бэкенды с разными API-хостами
-(`invapi.hostkey.ru` vs `invapi.hostkey.com`) и разными NS
-(`ns1/ns2.hostkey.ru`). Токен от одного не работает на другом. Скрипт
-ниже настроен на `.ru`.
+Использует официальный, встроенный в образ `neilpang/acme.sh` плагин
+`dns_beget` ([wiki](https://github.com/acmesh-official/acme.sh/wiki/dnsapi2#dns_beget))
+— никакого кастомного скрипта не нужно, он уже лежит в образе на
+`/acmebin/dnsapi/dns_beget.sh`. Проверил прямым запуском образа
+(`--issue --dns dns_beget ...`): хук находится (`Found domain API file:
+/acmebin/dnsapi/dns_beget.sh`) и запрашивает `Beget_Username`/
+`Beget_Password`, как и ожидается.
 
-У HOSTKEY нет официального плагина ни для `acme.sh`, ни для `certbot`, но
-есть собственный DNS API (`https://invapi.hostkey.ru/pdns.php`,
-[документация](https://hostkey.ru/documentation/apidocs/pdns/)) с
-точечными `add_dns`/`delete_dns` по одной записи — в отличие от Beget, где
-`changeRecords` перезаписывает всю зону целиком и сторонние скрипты
-регулярно стирали существующие A/MX-записи, здесь такого риска нет.
+Учётные данные — обычные логин/пароль от аккаунта Beget (не отдельный
+API-токен), включить доступ по API нужно в личном кабинете Beget:
+«Настройки аккаунта» → «Доступ по API». Положить в `Beget_Username` /
+`Beget_Password` в `.env`.
 
-`acme/dns_hostkey.sh` — самописный dnsapi-хук под конвенцию `acme.sh`
-(`dns_hostkey_add`/`dns_hostkey_rm`), примонтирован в оба контейнера
-(`acme_issue`, `acme_renew`) по пути `/acme.sh/dnsapi/dns_hostkey.sh`.
-Он не универсальный: вместо общего алгоритма поиска зоны (обычно
-dnsapi-скрипты поднимаются по лейблам домена и спрашивают провайдера, где
-граница зоны) просто отрезает захардкоженный суффикс `fqrmix.ru`
-(`HOSTKEY_ZONE` в `.env`, если когда-нибудь понадобится другой). Для
-единственной используемой здесь зоны этого достаточно.
-
-Токен — в личном кабинете `hostkey.ru`, раздел API-ключей
-([документация](https://hostkey.ru/documentation/apidocs/api/)), положить
-в `HOSTKEY_TOKEN` в `.env`. Заодно проверь, что NS у `fqrmix.ru` в
-регистраторе действительно указывают на `ns1.hostkey.ru`/`ns2.hostkey.ru`
-— иначе DNS-хостинг и, соответственно, этот API вообще не про твою зону.
-
-Хук монтируется в `/acmebin/dnsapi/dns_hostkey.sh` — **не** в
-`/acme.sh/dnsapi/`, хотя `acme_state`-volume смонтирован именно на
-`/acme.sh`. Разница: `/acme.sh` — это `LE_CONFIG_HOME` (там только
-аккаунт/сертификаты), а dnsapi-хуки грузятся из `LE_WORKING_DIR`, который
-в образе `neilpang/acme.sh` — `/acmebin` (проверено запуском образа и
-`env | grep LE_`). Первая версия монтировала не туда и `acme.sh` тихо не
-находил хук (`Cannot find DNS API hook for: dns_hostkey`, просился
-добавить TXT вручную) — если увидишь такую ошибку в логах, значит опять
-не тот путь.
-
-Проверено (реальным прогоном `neilpang/acme.sh --issue --dns dns_hostkey`
-с тестовым доменом): хук находится (`Found domain API file:
-/acmebin/dnsapi/dns_hostkey.sh`) и вызывается (падает на `HOSTKEY_TOKEN is
-not set`, как и должен без токена). **Не проверено** — реальный вызов
-`pdns.php` с настоящим токеном: своего аккаунта HOSTKEY для этого нет,
-проверка ответа на `"result":"OK"` собрана из документации, а не из
-живого ответа API. Первый прогон `acme_issue` с реальным `HOSTKEY_TOKEN`
-стоит запустить руками и посмотреть на фактический ответ, прежде чем
-полагаться на автопродление:
+**Важно про `changeRecords` у Beget** — этот метод перезаписывает всю
+зону целиком, а не отдельную запись; сторонние самописные интеграции
+(например, у `lego`, ACME-клиента Traefik/Caddy) из-за этого стирали
+существующие A/MX-записи домена ([issue](https://github.com/go-acme/lego/issues/2774)).
+Официальный `dns_beget.sh` от этой проблемы застрахован: перед
+изменением он делает `dns/getData` и добавляет TXT-запись поверх уже
+существующих A/AAAA/CAA/MX/SRV/TXT — я прочитал исходник плагина в
+образе и убедился в этом лично, а не поверил на слово документации. Но
+собственного аккаунта Beget для полного end-to-end теста (реальный
+`changeRecords`/`getData` вызов) у меня нет — первый прогон `acme_issue`
+стоит один раз проверить руками:
 
 ```bash
 docker compose run --rm acme_issue
 docker compose logs acme_issue
 ```
 
-## DNS-записи, которые нужно создать в HOSTKEY заранее
+## DNS-записи, которые нужно создать в Beget заранее
 
 Выпуск сертификата (DNS-01) не требует ничего, кроме доступа к API — но
 чтобы трафик реально доходил до сервера, в зоне `fqrmix.ru` должны быть:
@@ -112,7 +90,7 @@ compose-проект тоже публикует `443:443` — оба однов
 ## Запуск
 
 ```bash
-cp .env.example .env    # HOSTKEY_TOKEN
+cp .env.example .env    # Beget_Username / Beget_Password
 docker compose up --build -d
 ```
 

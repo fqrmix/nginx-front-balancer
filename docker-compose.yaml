@@ -1,11 +1,11 @@
 services:
   # One-shot: issues the wildcard cert (fqrmix.ru, *.fqrmix.ru,
-  # *.yoomoney-services.fqrmix.ru) via DNS-01 against HOSTKEY (our DNS
-  # provider - see acme/dns_hostkey.sh, a custom dnsapi hook since HOSTKEY
-  # has no official acme.sh/certbot plugin), then installs the result
-  # into the shared `certs` volume at a fixed, predictable path. Runs once
-  # per `docker compose up`; a no-op if acme.sh's own state (in
-  # `acme_state`) already has a valid, unexpired cert for these names.
+  # *.yoomoney-services.fqrmix.ru) via DNS-01 against Beget, using
+  # acme.sh's official bundled dns_beget hook (no custom script needed -
+  # it ships in the image's dnsapi/ dir), then installs the result into
+  # the shared `certs` volume at a fixed, predictable path. Runs once per
+  # `docker compose up`; a no-op if acme.sh's own state (in `acme_state`)
+  # already has a valid, unexpired cert for these names.
   acme_issue:
     image: neilpang/acme.sh
     container_name: sm_bot_acme_issue
@@ -14,17 +14,12 @@ services:
     volumes:
       - acme_state:/acme.sh
       - certs:/certs
-      # /acme.sh (LE_CONFIG_HOME) only holds account/cert state; acme.sh
-      # actually loads dnsapi hooks from LE_WORKING_DIR, which in this
-      # image is /acmebin - confirmed by inspecting the image directly
-      # (docker run --entrypoint sh neilpang/acme.sh -c 'env | grep LE_').
-      - ./acme/dns_hostkey.sh:/acmebin/dnsapi/dns_hostkey.sh:ro
     entrypoint: ["/bin/sh", "-c"]
     command:
       - |
         set -e
         mkdir -p /certs/fqrmix.ru
-        acme.sh --issue --dns dns_hostkey \
+        acme.sh --issue --dns dns_beget \
           -d fqrmix.ru \
           -d '*.fqrmix.ru' \
           -d '*.yoomoney-services.fqrmix.ru' \
@@ -50,11 +45,6 @@ services:
     volumes:
       - acme_state:/acme.sh
       - certs:/certs
-      # /acme.sh (LE_CONFIG_HOME) only holds account/cert state; acme.sh
-      # actually loads dnsapi hooks from LE_WORKING_DIR, which in this
-      # image is /acmebin - confirmed by inspecting the image directly
-      # (docker run --entrypoint sh neilpang/acme.sh -c 'env | grep LE_').
-      - ./acme/dns_hostkey.sh:/acmebin/dnsapi/dns_hostkey.sh:ro
     depends_on:
       acme_issue:
         condition: service_completed_successfully
