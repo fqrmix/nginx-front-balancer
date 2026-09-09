@@ -41,8 +41,14 @@ services:
       - sm_bot_net
 
   nginx:
+    # `docker compose up --build` still builds locally. On the server,
+    # `docker compose pull && docker compose up -d` uses the image CI
+    # pushes on every merge to master instead - see
+    # .github/workflows/ci.yml. Requires `docker login ghcr.io` on the
+    # server first if the ghcr.io/fqrmix/nginx-front-balancer package is
+    # private.
     build: ./nginx
-    image: sm_bot_nginx_balancer
+    image: ghcr.io/fqrmix/nginx-front-balancer:latest
     container_name: nginx_balancer
     restart: always
     ports:
