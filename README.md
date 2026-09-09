@@ -1,8 +1,8 @@
 # nginx-balancer
 
-Reverse-proxy + TLS termination перед `sm_bot_golang` (admin API) и
-`sm_bot_admin` (веб-админка). Сертификаты — wildcard Let's Encrypt через
-DNS-01 (Beget), автопродление через `acme.sh`.
+Reverse-proxy + TLS termination перед `sm_bot_golang` (admin API),
+`sm_bot_admin` (веб-админка) и `proxy-manager` (веб-UI). Сертификаты —
+wildcard Let's Encrypt через DNS-01 (Beget), автопродление через `acme.sh`.
 
 ## Домены
 
@@ -11,12 +11,14 @@ DNS-01 (Beget), автопродление через `acme.sh`.
 | `fqrmix.ru`, `www.fqrmix.ru` | статическая HTML-заглушка (`www/fqrmix-placeholder`) |
 | `sm-bot.yoomoney-services.fqrmix.ru` | проксирует на контейнер `sm_bot_admin:80` |
 | `api.yoomoney-services.fqrmix.ru/smbot/*` | проксирует на `sm_bot_golang:7772/*` (префикс `/smbot` срезается) |
+| `proxy.services.fqrmix.ru` | проксирует на контейнер `proxy_manager_frontend:80` (тот сам проксирует `/api/` на свой `backend`) |
 
 **Важный нюанс сертификата.** `*.fqrmix.ru` покрывает только один уровень
-поддоменов — `sm-bot.yoomoney-services.fqrmix.ru` и
-`api.yoomoney-services.fqrmix.ru` на два уровня глубже и под этот wildcard
-не попадают. Поэтому запрашивается один сертификат с тремя SAN:
-`fqrmix.ru`, `*.fqrmix.ru` и `*.yoomoney-services.fqrmix.ru` (см.
+поддоменов — `sm-bot.yoomoney-services.fqrmix.ru`,
+`api.yoomoney-services.fqrmix.ru` и `proxy.services.fqrmix.ru` на два
+уровня глубже и под этот wildcard не попадают. Поэтому запрашивается
+один сертификат с четырьмя SAN: `fqrmix.ru`, `*.fqrmix.ru`,
+`*.yoomoney-services.fqrmix.ru` и `*.services.fqrmix.ru` (см.
 `acme_issue` в `docker-compose.yaml`). Если подтверждённые домены
 поменяются — поправить список там же.
 
@@ -60,6 +62,7 @@ docker compose logs acme_issue
 - `fqrmix.ru` → A/AAAA на публичный IP этого хоста
 - `*.yoomoney-services.fqrmix.ru` → A/AAAA на тот же IP (покрывает и
   `sm-bot.`, и `api.` одной записью; либо явно каждую отдельно)
+- `*.services.fqrmix.ru` → A/AAAA на тот же IP (покрывает `proxy.`)
 
 ## Конфликт порта 443 с proxy-balancer
 
@@ -113,8 +116,8 @@ docker compose up --build -d
 
 Сеть `sm_bot_net` создаётся `sm_bot_golang/deploy/docker-compose.yaml` —
 поднимай его первым (или хотя бы `docker network create sm_bot_net`
-заранее), иначе `sm_bot_admin` и этот compose не смогут подключиться
-(`external: true`).
+заранее), иначе `sm_bot_admin`, `proxy-manager` и этот compose не смогут
+подключиться (`external: true`).
 
 1. `sm_bot_golang`: `docker compose -f deploy/docker-compose.yaml up -d`
    (сеть `sm_bot_net` создаётся здесь; admin API порт `7772` **уже не
@@ -124,7 +127,10 @@ docker compose up --build -d
    `api.yoomoney-services.fqrmix.ru/smbot/*`, у админки не будет доступа
    к API вообще).
 2. `sm_bot_admin`: `docker compose -f deploy/docker-compose.yaml up --build -d`
-3. `nginx-balancer` (этот репозиторий, после решения конфликта порта 443
+3. `proxy-manager`: `docker compose up --build -d` (frontend тоже без
+   host-порта — доступен только через `sm_bot_net`, аналогично
+   `sm_bot_admin`).
+4. `nginx-balancer` (этот репозиторий, после решения конфликта порта 443
    выше): `docker compose up --build -d`
 
 ## Структура

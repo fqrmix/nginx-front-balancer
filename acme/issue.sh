@@ -17,6 +17,7 @@ acme.sh --issue --dns dns_beget \
   -d fqrmix.ru \
   -d '*.fqrmix.ru' \
   -d '*.yoomoney-services.fqrmix.ru' \
+  -d '*.services.fqrmix.ru' \
   --server letsencrypt || {
     code=$?
     [ "$code" -eq 2 ] || exit "$code"

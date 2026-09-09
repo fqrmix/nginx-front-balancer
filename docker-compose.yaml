@@ -1,6 +1,6 @@
 services:
   # One-shot: issues the wildcard cert (fqrmix.ru, *.fqrmix.ru,
-  # *.yoomoney-services.fqrmix.ru) via DNS-01 against Beget, using
+  # *.yoomoney-services.fqrmix.ru, *.services.fqrmix.ru) via DNS-01 against Beget, using
   # acme.sh's official bundled dns_beget hook (no custom script needed -
   # it ships in the image's dnsapi/ dir), then installs the result into
   # the shared `certs` volume at a fixed, predictable path. Runs once per
@@ -72,9 +72,10 @@ volumes:
   certs:
 
 networks:
-  # Shared with sm_bot_golang/deploy/docker-compose.yaml and
-  # sm_bot_admin/deploy/docker-compose.yaml - created by whichever of the
-  # three stacks starts first (docker compose creates a network declared
+  # Shared with sm_bot_golang/deploy/docker-compose.yaml,
+  # sm_bot_admin/deploy/docker-compose.yaml and
+  # proxy-manager/docker-compose.yml - created by whichever of these
+  # stacks starts first (docker compose creates a network declared
   # non-external the first time; here it's always external because this
   # repo doesn't own it).
   sm_bot_net:
