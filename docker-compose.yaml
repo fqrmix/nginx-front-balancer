@@ -51,6 +51,8 @@ services:
     image: ghcr.io/fqrmix/nginx-front-balancer:latest
     container_name: nginx_balancer
     restart: always
+    cap_add:
+      - NET_ADMIN
     ports:
       - "80:80"
       - "443:443"
@@ -61,7 +63,9 @@ services:
       acme_issue:
         condition: service_completed_successfully
     networks:
-      - sm_bot_net
+      sm_bot_net:
+      homelab-private-network:
+        ipv4_address: 10.100.0.3
 
 volumes:
   # acme.sh's account key + per-domain renewal config - losing this means
@@ -80,3 +84,13 @@ networks:
   # repo doesn't own it).
   sm_bot_net:
     external: true
+  # Owned by this stack - the wg-dashboard compose references it as
+  # external. The gateway container (wgdashboard, 10.100.0.2) routes into
+  # the home LAN (192.168.1.0/24) - see nginx/docker-entrypoint-reload.sh.
+  homelab-private-network:
+    name: homelab-private-network
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 10.100.0.0/24
+          gateway: 10.100.0.1
