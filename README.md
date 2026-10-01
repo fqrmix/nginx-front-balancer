@@ -1,8 +1,9 @@
 # nginx-balancer
 
 Reverse-proxy + TLS termination перед `sm_bot_golang` (admin API),
-`sm_bot_admin` (веб-админка) и `proxy-manager` (веб-UI). Сертификаты —
-wildcard Let's Encrypt через DNS-01 (Beget), автопродление через `acme.sh`.
+`sm_bot_admin` (веб-админка), `proxy-manager` (веб-UI) и `home-cinema`
+(веб-приложение + Jellyfin). Сертификаты — wildcard Let's Encrypt через
+DNS-01 (Beget), автопродление через `acme.sh`.
 
 ## Домены
 
@@ -12,6 +13,8 @@ wildcard Let's Encrypt через DNS-01 (Beget), автопродление ч�
 | `sm-bot.yoomoney-services.fqrmix.ru` | проксирует на контейнер `sm_bot_admin:80` |
 | `api.yoomoney-services.fqrmix.ru/smbot/*` | проксирует на `sm_bot_golang:7772/*` (префикс `/smbot` срезается) |
 | `proxy.services.fqrmix.ru` | проксирует на контейнер `proxy_manager_frontend:80` (тот сам проксирует `/api/` на свой `backend`) |
+| `cinema.services.fqrmix.ru` | проксирует на контейнер `home_cinema_nginx:80` (тот сам проксирует `/api/` на свой `backend`) |
+| `jellyfin.services.fqrmix.ru` | проксирует на контейнер `home_cinema_jellyfin:8096`, с WebSocket upgrade-заголовками |
 
 **Важный нюанс сертификата.** `*.fqrmix.ru` покрывает только один уровень
 поддоменов — `sm-bot.yoomoney-services.fqrmix.ru`,
@@ -131,7 +134,14 @@ docker compose up --build -d
    host-порта — доступен только через `sm_bot_net`, аналогично
    `sm_bot_admin`).
 4. `nginx-balancer` (этот репозиторий, после решения конфликта порта 443
-   выше): `docker compose up --build -d`
+   выше): `docker compose up --build -d` — это же создаёт
+   `homelab-private-network` (не `external` здесь, в отличие от
+   `sm_bot_net`: этой сетью владеет именно этот репозиторий).
+5. `home-cinema`: `docker compose -f docker-compose.yml -f docker-compose.prod.yml up --build -d`
+   — требует уже поднятого шага 4 (сеть `homelab-private-network`
+   подключается как `external: true`); без prod-оверлея `nginx`/`jellyfin`
+   публикуют хостовые порты 80/8096 напрямую, что конфликтует с портом 80
+   этого балансировщика — см. README `home-cinema`.
 
 ## Структура
 
